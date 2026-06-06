@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Pathfinder</title>
+<style>
+  body { margin: 0; background: #111; color: #ddd; font-family: monospace; display: flex; height: 100vh; }
+  canvas { flex: 1; display: block; }
+  aside { width: 220px; padding: 16px; border-left: 1px solid #333; overflow-y: auto; font-size: 13px; }
+  h3 { margin: 0 0 8px; font-size: 13px; color: #aaa; font-weight: normal; }
+  .row { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px solid #222; }
+  .path { margin-top: 6px; word-break: break-all; }
+  .sep { border-top: 1px solid #333; margin: 14px 0; }
+  button { background: #222; color: #ccc; border: 1px solid #444; padding: 5px 10px; font-family: monospace; font-size: 12px; cursor: pointer; margin-top: 4px; width: 100%; }
+  button:hover { background: #2a2a2a; }
+  #status { color: #888; font-size: 12px; padding: 12px; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<aside id="sidebar"><div id="status">Loading result.json…</div></aside>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const PAD = 40;
+
+let DATA = null;
+let bfsV = new Set(), astV = new Set(), showPaths = false;
+
+// ── load JSON ────────────────────────────────────────────────────────────────
+fetch('result.json')
+  .then(r => {
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  })
+  .then(data => {
+    DATA = data;
+    buildSidebar();
+    resize();
+    setTimeout(() => {
+      bfsV = new Set(DATA.bfs.visitOrder);
+      astV = new Set(DATA.astar.visitOrder);
+      showPaths = true;
+      draw();
+    }, 100);
+  })
+  .catch(err => {
+    document.getElementById('status').textContent =
+      'Could not load result.json. Run the C++ binary first.\n(' + err.message + ')';
+  });
+
+// ── canvas ───────────────────────────────────────────────────────────────────
+function resize() {
+  canvas.width  = canvas.clientWidth;
+  canvas.height = canvas.clientHeight;
+  if (DATA) draw();
+}
+window.addEventListener('resize', resize);
+
+function px(x, maxX) { return PAD + x / maxX * (canvas.width  - 2*PAD); }
+function py(y, maxY) { return PAD + y / maxY * (canvas.height - 2*PAD); }
+
+function nodePos(id) {
+  const maxX = Math.max(...DATA.nodes.map(n => n.x));
+  const maxY = Math.max(...DATA.nodes.map(n => n.y));
+  const n = DATA.nodes.find(n => n.id === id);
+  return { cx: px(n.x, maxX), cy: py(n.y, maxY) };
+}
+
+function onPath(e, path) {
+  for (let i = 0; i < path.length - 1; i++)
+    if ((path[i]===e.from && path[i+1]===e.to) || (path[i]===e.to && path[i+1]===e.from))
+      return true;
+  return false;
+}
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // edges
+  DATA.edges.forEach(e => {
+    const a = nodePos(e.from), b = nodePos(e.to);
+    const ob = showPaths && onPath(e, DATA.bfs.path);
+    const oa = showPaths && onPath(e, DATA.astar.path);
+
+    const drawLine = (col, w, off) => {
+      const dx = b.cx-a.cx, dy = b.cy-a.cy, len = Math.sqrt(dx*dx+dy*dy);
+      const nx = -dy/len*off, ny = dx/len*off;
+      ctx.beginPath();
+      ctx.moveTo(a.cx+nx, a.cy+ny); ctx.lineTo(b.cx+nx, b.cy+ny);
+      ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineCap = 'round'; ctx.stroke();
+    };
+
+    if (ob && oa) { drawLine('#38bdf8', 2.5, -2); drawLine('#a78bfa', 2.5, 2); }
+    else if (ob)   drawLine('#38bdf8', 2.5, 0);
+    else if (oa)   drawLine('#a78bfa', 2.5, 0);
+    else           drawLine('#333',    1,   0);
+
+    ctx.fillStyle = '#555'; ctx.font = '10px monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(e.weight, (a.cx+b.cx)/2, (a.cy+b.cy)/2);
+  });
+
+  // nodes
+  DATA.nodes.forEach(n => {
+    const {cx, cy} = nodePos(n.id);
+    const R = 16;
+    const isSt = n.id === DATA.start, isGl = n.id === DATA.goal;
+    const inB = bfsV.has(n.id), inA = astV.has(n.id);
+    const onB = showPaths && DATA.bfs.path.includes(n.id);
+    const onA = showPaths && DATA.astar.path.includes(n.id);
+
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI*2);
+    ctx.fillStyle = isSt ? '#0e4a54' : isGl ? '#4a1030'
+                  : inB && inA ? '#2a2040' : inB ? '#1e3a4a' : inA ? '#2a1e4a' : '#1a1a1a';
+    ctx.fill();
+    ctx.strokeStyle = isSt ? '#22d3ee' : isGl ? '#f472b6'
+                    : onA ? '#a78bfa' : onB ? '#38bdf8'
+                    : inA ? 'rgba(167,139,250,0.4)' : inB ? 'rgba(56,189,248,0.4)' : '#444';
+    ctx.lineWidth = isSt || isGl ? 2 : 1.5; ctx.stroke();
+
+    ctx.fillStyle = isSt ? '#22d3ee' : isGl ? '#f472b6' : '#ddd';
+    ctx.font = 'bold 12px monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(n.id, cx, cy);
+  });
+}
+
+// ── animation ────────────────────────────────────────────────────────────────
+function animate() {
+  bfsV.clear(); astV.clear(); showPaths = false;
+  let phase = 'bfs', step = 0; draw();
+  const tm = setInterval(() => {
+    if (phase === 'bfs') {
+      if (step < DATA.bfs.visitOrder.length) bfsV.add(DATA.bfs.visitOrder[step++]);
+      else { phase = 'astar'; step = 0; }
+    } else {
+      if (step < DATA.astar.visitOrder.length) astV.add(DATA.astar.visitOrder[step++]);
+      else { showPaths = true; clearInterval(tm); }
+    }
+    draw();
+  }, 200);
+}
+
+// ── sidebar ──────────────────────────────────────────────────────────────────
+function buildSidebar() {
+  const b = DATA.bfs, a = DATA.astar;
+  document.getElementById('sidebar').innerHTML = `
+    <h3>BFS</h3>
+    <div class="row"><span>Cost</span><span style="color:#38bdf8">${b.totalCost}</span></div>
+    <div class="row"><span>Visited</span><span style="color:#38bdf8">${b.visitOrder.length}</span></div>
+    <div class="path" style="color:#38bdf8">${b.path.join('→')}</div>
+
+    <div class="sep"></div>
+
+    <h3>A*</h3>
+    <div class="row"><span>Cost</span><span style="color:#a78bfa">${a.totalCost}</span></div>
+    <div class="row"><span>Visited</span><span style="color:#a78bfa">${a.visitOrder.length}</span></div>
+    <div class="path" style="color:#a78bfa">${a.path.join('→')}</div>
+
+    <div class="sep"></div>
+
+    <h3>Legend</h3>
+    <div class="row"><span>● Start (${DATA.start})</span><span style="color:#22d3ee">cyan</span></div>
+    <div class="row"><span>● Goal (${DATA.goal})</span><span style="color:#f472b6">pink</span></div>
+    <div class="row"><span>— BFS</span><span style="color:#38bdf8">blue</span></div>
+    <div class="row"><span>— A*</span><span style="color:#a78bfa">purple</span></div>
+
+    <div class="sep"></div>
+    <button onclick="animate()">▶ Replay</button>
+  `;
+}
+</script>
+</body>
+</html>
