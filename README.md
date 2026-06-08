@@ -77,6 +77,3 @@ A\* visits fewer nodes and finds a cheaper path by using spatial information BFS
 
 Edit `main.cpp` — add nodes with `g.addNode("X", x, y)` and edges with `g.addEdge("X", "Y", weight)`, then recompile and rerun. The visualizer picks up the new `result.json` automatically on refresh.
 
-## License
-
-MIT
